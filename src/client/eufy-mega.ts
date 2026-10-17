@@ -337,7 +337,7 @@ export class EufyMega extends EventEmitter {
     this.opts = opts;
     if ("country" in opts && opts.countryCode === undefined) {
       throw new TypeError(
-        `[eufy] option "country" is not read; the account country is "countryCode", so this client would run as "US".`,
+        `option "country" is not read; the account country is "countryCode", so this client would run as "US".`,
       );
     }
     this.prewarmEvents = new Set(opts.prewarmEvents ?? []);
