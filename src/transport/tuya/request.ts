@@ -223,14 +223,21 @@ export async function sendApiRequest<T = unknown>(
 /* ---- action builders (pure — no signer / network needed to construct) ---------------------- */
 
 /**
- * CONTROL: publish device data-points. `dps` is `{ "<dpId>": <value> }`; note it is JSON-stringified
- * INSIDE the postData (Tuya nests the dps map as a string). Action `smartlife.m.device.dp.publish` v2.0.
+ * CONTROL: publish device data-points. Action `smartlife.m.device.dp.publish` v1.0, postData
+ * `{ gwId, devId, dps, pcc? }` — the device SDK's standard control publish. `dps` is a
+ * `{ "<dpId>": <value> }` map, JSON-stringified INSIDE the postData (Tuya nests it as a string).
+ * `pcc` (product-category code) is included only when supplied, as the app omits it when empty.
  */
-export function buildPublishDpsAction(devId: string, gwId: string, dps: Record<string, unknown>): TuyaAction {
+export function buildPublishDpsAction(
+  devId: string,
+  gwId: string,
+  dps: Record<string, unknown>,
+  pcc?: string,
+): TuyaAction {
   return {
     a: "smartlife.m.device.dp.publish",
-    v: "2.0",
-    postData: JSON.stringify({ gwId, devId, dps: JSON.stringify(dps) }),
+    v: "1.0",
+    postData: JSON.stringify({ gwId, devId, dps: JSON.stringify(dps), ...(pcc ? { pcc } : {}) }),
   };
 }
 
