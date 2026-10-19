@@ -158,6 +158,27 @@ describe("RtcCommandRouter", () => {
     expect(sessions).toHaveLength(0);
   });
 
+  it("opens the station session on a shard the provider resolves asynchronously", async () => {
+    const { router, sessions } = makeRouter({ shard: async () => "ie-pr" });
+    await router.dispatchCommand(ST, arming(1));
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]!.opts.shard).toBe("ie-pr");
+  });
+
+  it("does not await the shard again when reusing a connected session", async () => {
+    let shardCalls = 0;
+    const { router } = makeRouter({
+      shard: () => {
+        shardCalls++;
+        return "ie-pr";
+      },
+    });
+    await router.dispatchCommand(ST, arming(1)); // create — shard resolved once
+    expect(shardCalls).toBe(1);
+    await router.dispatchCommand(ST, arming(2)); // reuse — the shard must not be asked again
+    expect(shardCalls).toBe(1);
+  });
+
   it("sends the app's 1350 envelope on the station channel and resolves on the ACK", async () => {
     const { router, sessions } = makeRouter();
     await router.dispatchCommand(ST, arming(1));
@@ -428,6 +449,18 @@ describe("RtcCommandRouter live view", () => {
     return Buffer.concat([buildPortalHeader(1300, body.length, 101, 0, 0), body]);
   };
   const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
+
+  it("opens a portal `call` media session on a shard resolved asynchronously (T8223 path)", async () => {
+    const { router, sessions } = makeRouter({ shard: async () => "ie-pr" });
+    try {
+      const handle = await router.trackMediaProviderFor({ ...CAM, signalingMode: "call" }).live();
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]!.opts.shard).toBe("ie-pr");
+      handle.stop();
+    } finally {
+      router.close();
+    }
+  });
 
   it("shares one pull between concurrent viewers of the same camera", async () => {
     const { router, sessions } = makeRouter();

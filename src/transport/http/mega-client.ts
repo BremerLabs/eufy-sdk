@@ -322,6 +322,9 @@ export class MegaHttpClient {
   private region: RegionShard;
   /** The host `estimate_domain` answered, persisted with the session. */
   private estimatedDomain = "";
+  /** The shard {@link portalShard} resolved for RTC signing, once it has, and its in-flight request. */
+  private portalShardCache?: string;
+  private portalShardInFlight?: Promise<string>;
   private bootstrapDomain?: string;
   private sessionKey?: SessionEntry;
   /** Per-host ECDH session keys for non-mega gateways (e.g. eufylife) keyed by host. */
@@ -463,6 +466,35 @@ export class MegaHttpClient {
   }
 
   /**
+   * The shard the RTC signalling signs on, from `estimate_domain` asked with the portal's WEB identity
+   * (`Model-Type: WEB`, `App-Name: eufy_mega`) — the identity the sign itself is sent with, which can name
+   * a different shard than the PHONE identity does for one account. Cached, with the in-flight request
+   * shared by concurrent first callers; a call that fails or names no shard answers {@link rtcShard} and is
+   * asked again next time.
+   */
+  async portalShard(): Promise<string> {
+    if (this.portalShardCache) return this.portalShardCache;
+    return (this.portalShardInFlight ??= this.fetchPortalShard());
+  }
+
+  private async fetchPortalShard(): Promise<string> {
+    try {
+      const res = await this.estimateDomainRequest({ "Model-Type": "WEB", "App-Name": "eufy_mega" });
+      const domain = (res.data as ApiEnvelope<Record<string, unknown>>)?.data?.domain;
+      const m = typeof domain === "string" ? /-([a-z]{2})(?:[.-]|$)/i.exec(domain) : null;
+      if (m) {
+        this.portalShardCache = `${m[1].toLowerCase()}-pr`;
+        this.logger.debug("[mega] portal shard:", this.portalShardCache);
+        return this.portalShardCache;
+      }
+    } catch (e) {
+      this.logger.debug("[mega] portal estimate_domain failed:", e instanceof Error ? e.message : String(e));
+    }
+    this.portalShardInFlight = undefined; // not resolved to a shard → ask again next time
+    return this.rtcShard;
+  }
+
+  /**
    * The credentials the RTC signalling needs; `undefined` while logged out. The sign is refused
    * ("gtoken not equal userid") unless its gtoken is the one every authed HTTP call carries.
    */
@@ -564,17 +596,18 @@ export class MegaHttpClient {
     return { status: res.status, data: parseMaybeJson(await res.text()) };
   }
 
+  /** POST `estimate_domain` with the given identity headers. */
+  private estimateDomainRequest(headers: Record<string, string>) {
+    return this.httpPost(
+      `https://mega-${this.region}.eufy.com/passport/estimate_domain`,
+      { ab: this.cfg.countryCode.toLowerCase(), mode: 1 },
+      { ...headers, "content-type": "application/json" },
+    );
+  }
+
   /** Step 1: discover the account's region shard (and the bootstrap host). */
   async estimateDomain(): Promise<void> {
-    const url = `https://mega-${this.region}.eufy.com/passport/estimate_domain`;
-    const res = await this.httpPost(
-      url,
-      { ab: this.cfg.countryCode.toLowerCase(), mode: 1 },
-      {
-        ...this.baseHeaders(),
-        "content-type": "application/json",
-      },
-    );
+    const res = await this.estimateDomainRequest(this.baseHeaders());
     this.logger.debug("[mega] estimate_domain raw:", JSON.stringify(res.data).slice(0, 400));
     const env = res.data as ApiEnvelope<Record<string, unknown>>;
     const d = env?.data ?? {};

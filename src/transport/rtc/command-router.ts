@@ -97,7 +97,7 @@ export interface RtcCommandRouterDeps {
   /** The logged-in session's credentials; `undefined` while logged out. */
   identity: () => RtcIdentity | undefined;
   /** The mega shard the account signs on (`"ie-pr"`, `"eu-pr"`, `"us-pr"`); picks the smart host. */
-  shard: () => string;
+  shard: () => string | Promise<string>;
   /** ISO country sent on the sign request (default `US`). */
   country?: string;
   logger?: Logger;
@@ -212,14 +212,16 @@ export class RtcCommandRouter {
    */
   trackMediaProviderFor(route: RtcRoute): MediaProvider {
     const sn = route.stationSn;
-    const sourceFor = (hints: SharedSourceHints = {}): SharedLiveSource => {
+    const sourceFor = (shard: string, hints: SharedSourceHints = {}): SharedLiveSource => {
       let source = this.callSources.get(sn);
       if (!source) {
         source = new SharedLiveSource({
+          // `SharedLiveSource` calls `makeStream` synchronously, so the shard is resolved by the async
+          // entry points below and captured here rather than awaited in the callback.
           makeStream: () => {
             const identity = this.deps.identity();
             if (!identity) throw new Error(`rtc: not logged in, cannot call ${sn}`);
-            const session = this.newSession(route, route.adminUserId || identity.userId, identity);
+            const session = this.newSession(route, route.adminUserId || identity.userId, identity, shard);
             return new RtcCallLiveStream(session, this.deps.logger);
           },
           label: sn,
@@ -233,10 +235,11 @@ export class RtcCommandRouter {
       return source;
     };
     return {
-      live: async (opts) => attachUnlessAborted(sourceFor(opts), opts?.signal),
-      openReadable: async (opts) => openReadableFromConsumer(attachUnlessAborted(sourceFor(opts), opts?.signal), opts),
-      snapshotLive: (opts) =>
-        captureSnapshotFromShared(sourceFor(opts), {
+      live: async (opts) => attachUnlessAborted(sourceFor(await this.deps.shard(), opts), opts?.signal),
+      openReadable: async (opts) =>
+        openReadableFromConsumer(attachUnlessAborted(sourceFor(await this.deps.shard(), opts), opts?.signal), opts),
+      snapshotLive: async (opts) =>
+        captureSnapshotFromShared(sourceFor(await this.deps.shard(), opts), {
           ...opts,
           logger: this.deps.logger,
           ffmpegPath: this.deps.ffmpegPath,
@@ -410,13 +413,13 @@ export class RtcCommandRouter {
     });
   }
 
-  private newSession(route: RtcRoute, adminUserId: string, identity: RtcIdentity): RtcSession {
+  private newSession(route: RtcRoute, adminUserId: string, identity: RtcIdentity, shard: string): RtcSession {
     return (this.deps.createSession ?? ((o: RtcSessionOptions) => new RtcSession(o)))({
       authToken: identity.authToken,
       gtoken: identity.gtoken,
       stationSn: route.stationSn,
       adminUserId,
-      shard: this.deps.shard(),
+      shard,
       country: this.deps.country ?? "US",
       logger: this.deps.logger,
       signalingMode: route.signalingMode,
@@ -424,8 +427,30 @@ export class RtcCommandRouter {
     });
   }
 
+  /** A connected session for `sn` to reuse, or undefined (dropping a dead one). */
+  private async reusable(sn: string): Promise<StationSession | undefined> {
+    const st = this.sessions.get(sn);
+    if (!st) return undefined;
+    await st.ready;
+    if (st.session.isConnected) {
+      this.touch(sn, st);
+      return st;
+    }
+    this.drop(sn, st);
+    return undefined;
+  }
+
+  /**
+   * Get or open the station's session. A connected session is reused before the shard is awaited, so a
+   * command on an already-connected station never waits on the unauthenticated `estimate_domain` round
+   * trip — only the create path awaits it. After the await the map is re-checked, with no `await` between
+   * the lookup and `this.sessions.set`, so concurrent creators still share one session.
+   */
   private async stationSession(route: RtcRoute, adminUserId: string, identity: RtcIdentity): Promise<StationSession> {
     const sn = route.stationSn;
+    const reused = await this.reusable(sn);
+    if (reused) return reused;
+    const shard = await this.deps.shard();
     const existing = this.sessions.get(sn);
     if (existing) {
       await existing.ready;
@@ -435,7 +460,7 @@ export class RtcCommandRouter {
       }
       this.drop(sn, existing);
     }
-    const session = this.newSession(route, adminUserId, identity);
+    const session = this.newSession(route, adminUserId, identity, shard);
     const ready = this.bringUp(sn, session);
     const st: StationSession = { session, seg: new SegmentCounter(), ready, queue: Promise.resolve(), leases: 0 };
     session.on("error", (e) => this.deps.onError?.(e));
