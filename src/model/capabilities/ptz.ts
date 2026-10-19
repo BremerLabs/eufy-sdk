@@ -516,7 +516,9 @@ export const PTZ: CapabilityModule = {
       // no PTZ capability without this, on a real owned unit.
       DeviceType.FLOODLIGHT_CAMERA_8425,
     ],
-    modelHints: [/pan.?tilt|\bpt\b|S3[45]0|indoor.?pt/i, /\bT8E00\b/i],
+    // T8171 (SoloCam E30) is a single-lens pan-tilt SoloCam (its rotate/preset wire is live-captured
+    // above), but it reports NONE of the preset evidence params, so only a model match detects it.
+    modelHints: [/pan.?tilt|\bpt\b|S3[45]0|indoor.?pt/i, /\bT8E00\b/i, /\bT8171\b/i],
   },
   emits: ["ptzNotify"],
   /**

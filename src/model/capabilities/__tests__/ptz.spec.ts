@@ -86,6 +86,12 @@ describe("ptz capability module", () => {
       }
       expect(PTZ.detection?.deviceTypes).toEqual(expect.arrayContaining([31, 35, 111]));
     });
+    it("detects a T8171 SoloCam E30 by model, even reporting no preset params", () => {
+      // The single-lens PT T8171 reports none of 6090/6091/6092/6210 (see the module's zoom-evidence
+      // note), so only the model hint catches it. Diagnostic from ha-eufy-sdk-addon#34.
+      expect(detectCapabilities({ model: "T8171", params: {} }, "camera")).toContain("ptz");
+      expect(resolveDevice({ model: "T8171", params: {} }).capabilities).toContain("ptz");
+    });
     it("a fixed-lens T8134 reporting preset params as 0 is not pan-tilt", () => {
       const presets = { 6090: "0", 6091: "0", 6092: "0" };
       expect(detectCapabilities({ model: "T8134", deviceType: 63, params: presets }, "camera")).not.toContain("ptz");
