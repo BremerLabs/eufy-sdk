@@ -34,6 +34,7 @@ import { TuyaCommandRouter } from "../transport/tuya/command-router.js";
 import { TuyaDpRouter } from "../transport/tuya/dp-codec.js";
 import { rawDpCodec } from "../transport/raw-dp.js";
 import { resolveLightEffect as resolveLightEffectHttp } from "../transport/http/light-catalog.js";
+import { decodeImageV8WithVault, type V8VaultOutcome } from "../transport/http/decodeImageV8Vault.js";
 import {
   buildCommand as buildCapabilityCommand,
   decodeEvent as decodeCapabilityEvent,
@@ -1059,6 +1060,22 @@ export class EufyMega extends EventEmitter {
   /** Raw mega HTTP client, for endpoints not yet wrapped. */
   get api(): MegaHttpClient {
     return this.mega;
+  }
+
+  /**
+   * EXPERIMENTAL — decode a v8 (`v8_eufysecurity:`) cover/thumbnail using the owner's Local-Advanced-
+   * Encryption vault password. Fetches the account's vault key (`get_safebox_etoe_key`) and self-verifies
+   * the unwrap against the account public key before decoding. Returns the JPEG, or an outcome naming
+   * where it stopped. A probe for password-escrowed accounts only; the confirmed scheme replaces it later.
+   */
+  async experimentalDecodeV8Cover(blob: Buffer, vaultPassword: string): Promise<V8VaultOutcome> {
+    const userId = this.mega.auth?.userId;
+    if (!userId) return { phase: "fetch", detail: "not logged in" };
+    return decodeImageV8WithVault(blob, {
+      post: (p, b) => this.mega.securityAppPost(p, b),
+      userId,
+      vaultPassword,
+    });
   }
 
   /**
