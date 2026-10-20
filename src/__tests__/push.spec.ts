@@ -100,4 +100,59 @@ describe("FCM/MCS push primitives", () => {
     expect(errors).toHaveLength(1);
     client.close();
   });
+
+  it("closes a half-open socket when no inbound frame arrives within a heartbeat window", () => {
+    vi.useFakeTimers();
+    try {
+      const client = new PushClient({ fid: "x", androidId: "1", securityToken: "2", fcmToken: "t" } as never);
+      const write = vi.fn();
+      const destroy = vi.fn();
+      const internals = client as unknown as { socket: unknown; loggedIn: boolean; startHeartbeat(): void };
+      internals.socket = { write, destroy };
+      internals.loggedIn = true;
+      internals.startHeartbeat();
+
+      // First tick: the link is fresh, so we ping rather than tear down.
+      vi.advanceTimersByTime(5 * 60 * 1000);
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(destroy).not.toHaveBeenCalled();
+
+      // No inbound frame answers that ping. The next tick sees a full window of silence → close to
+      // reconnect, and does NOT write another ping into the void.
+      vi.advanceTimersByTime(5 * 60 * 1000);
+      expect(destroy).toHaveBeenCalledTimes(1);
+      expect(write).toHaveBeenCalledTimes(1);
+      client.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the socket alive while inbound frames keep arriving", () => {
+    vi.useFakeTimers();
+    try {
+      const client = new PushClient({ fid: "x", androidId: "1", securityToken: "2", fcmToken: "t" } as never);
+      const write = vi.fn();
+      const destroy = vi.fn();
+      const internals = client as unknown as {
+        socket: unknown;
+        loggedIn: boolean;
+        startHeartbeat(): void;
+        onMessage(m: unknown): void;
+      };
+      internals.socket = { write, destroy };
+      internals.loggedIn = true;
+      internals.startHeartbeat();
+
+      for (let i = 0; i < 5; i++) {
+        vi.advanceTimersByTime(5 * 60 * 1000);
+        internals.onMessage({ tag: MessageTag.HeartbeatAck, object: {} }); // the server answers each ping
+      }
+      expect(destroy).not.toHaveBeenCalled();
+      expect(write).toHaveBeenCalledTimes(5);
+      client.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

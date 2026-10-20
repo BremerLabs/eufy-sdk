@@ -24,6 +24,15 @@ const HOST = "mtalk.google.com";
 const PORT = 5228;
 const MCS_VERSION = 41;
 const HEARTBEAT_MS = 5 * 60 * 1000;
+/**
+ * Slack beyond one heartbeat interval before a silent socket is declared dead. The server acks every
+ * ping we send (and pings us on its own cadence), so a full interval plus this grace with zero inbound
+ * bytes means the link is half-open — dropped somewhere downstream while it still looks connected here.
+ */
+const HEARTBEAT_GRACE_MS = 60 * 1000;
+/** OS TCP keepalive idle before the kernel starts probing a dead peer. Node's default is ~2h — far too
+ *  long for a push link — so we set a short idle as a second line of defence under the app heartbeat. */
+const KEEPALIVE_IDLE_MS = 60 * 1000;
 
 function readNullTerminated(buf: Buffer): string {
   const i = buf.indexOf(0);
@@ -116,6 +125,8 @@ export class PushClient extends EventEmitter {
   private persistentIds: string[] = [];
   private loggedIn = false;
   private closing = false;
+  /** Timestamp (ms) of the last inbound MCS frame — the liveness signal the heartbeat checks. */
+  private lastRxMs = 0;
   /** Consecutive MCS login rejections — transient ones self-heal via reconnect (see {@link onMessage}). */
   private loginFailures = 0;
 
@@ -150,7 +161,7 @@ export class PushClient extends EventEmitter {
     this.loggedIn = false;
     const socket = tls.connect(PORT, HOST, { servername: HOST });
     this.socket = socket;
-    socket.setKeepAlive(true);
+    socket.setKeepAlive(true, KEEPALIVE_IDLE_MS);
     socket.on("secureConnect", () => {
       this.logger.debug("[push] TLS connected, sending login");
       socket.write(this.buildLoginRequest());
@@ -199,6 +210,7 @@ export class PushClient extends EventEmitter {
   }
 
   private onMessage(m: McsMessage): void {
+    this.lastRxMs = Date.now(); // any inbound frame is proof the link is alive (dead-peer detection)
     switch (m.tag) {
       case MessageTag.LoginResponse:
         if (m.object?.error) {
@@ -285,8 +297,22 @@ export class PushClient extends EventEmitter {
 
   private startHeartbeat(): void {
     this.stopHeartbeat();
+    this.lastRxMs = Date.now();
     this.heartbeatTimer = setInterval(() => {
-      if (this.socket && this.loggedIn) this.socket.write(this.buildHeartbeatPing());
+      if (!this.socket || !this.loggedIn) return;
+      // Dead-peer detection. A write to a half-open socket (one a home NAT/router has silently dropped
+      // while idle) does not error for a long time — minutes, or never — so the write alone can never
+      // tell us the link is gone, and the OS keepalive only backs this up after KEEPALIVE_IDLE_MS. The
+      // server acks every ping and pings us on its own cadence, so a whole interval with no inbound
+      // bytes means the link is dead: close it → onClose → scheduleReconnect, rather than keep writing
+      // pings into the void. Without this the push channel silently stops delivering events while still
+      // reporting itself connected, until the process is restarted.
+      if (Date.now() - this.lastRxMs >= HEARTBEAT_MS + HEARTBEAT_GRACE_MS) {
+        this.logger.debug("[push] no inbound within a heartbeat window — closing half-open socket to reconnect");
+        this.socket.destroy(); // → onClose → scheduleReconnect
+        return;
+      }
+      this.socket.write(this.buildHeartbeatPing());
     }, HEARTBEAT_MS);
   }
   private stopHeartbeat(): void {
