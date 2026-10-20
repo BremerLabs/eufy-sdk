@@ -19,7 +19,6 @@ import type { Command, CommandSink, MediaProvider } from "../../../core/contract
  *  6. a provider-gated method is described only on a device bound to that provider.
  */
 const MODULES = Object.values(CAPABILITY_MODULES);
-const BINDABLE = MODULES.filter((m) => m.actions || m.members);
 const sink: CommandSink = { dispatch: async () => undefined };
 const camelCase = (id: string): string => id.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
 
@@ -45,26 +44,25 @@ const ctxWith = (paramIds: Set<number>, model?: string): CommandContext => ({
   ...(model ? { model } : {}),
 });
 
-/** Describe the bound objects of a synthetic device that HAS every capability. */
-const describeAll = (paramIds: Set<number>, media?: MediaProvider): ReturnType<typeof describeCapabilities> =>
-  describeCapabilities(
-    buildActions(
-      BINDABLE.map((m) => m.capability),
-      { ctx: ctxWith(paramIds), sink, read: () => undefined, media },
-    ),
-  );
+/** The capabilities a synthetic device has by default — every one, so marker caps (e.g. `snapshot`,
+ *  which gates `snapshotStored`) are present. Binding a cap with no surface is a no-op. */
+const ALL_CAPS: readonly Capability[] = MODULES.map((m) => m.capability);
 
 /**
- * Describe the bound objects of a device with a GIVEN capability set — used where the all-capabilities
- * device would be unrealistic, e.g. the `battery` reads of a plain camera (a lock owns `battery` itself,
- * which suppresses this capability's `level` read).
+ * Describe the bound objects of a synthetic device. By default it HAS every capability; pass `caps` to
+ * bind a realistic subset (e.g. a plain camera, where a lock would suppress the battery `level` read).
  */
-const describeWith = (caps: readonly string[], paramIds: Set<number>): ReturnType<typeof describeCapabilities> =>
+const describeAll = (
+  paramIds: Set<number>,
+  caps: readonly Capability[] = ALL_CAPS,
+  media?: MediaProvider,
+): ReturnType<typeof describeCapabilities> =>
   describeCapabilities(
-    buildActions(caps as never, {
-      ctx: { ...ctxWith(paramIds), capabilities: new Set(caps as never) },
+    buildActions(caps, {
+      ctx: { ...ctxWith(paramIds), capabilities: new Set(caps) },
       sink,
       read: () => undefined,
+      media,
     }),
   );
 
@@ -161,14 +159,14 @@ describe("describeCapabilities — enumeration of the live bound objects", () =>
   it("describes only the reads the device reported, not the theoretical set", () => {
     const battery = CAPABILITY_MODULES.battery;
     const level = battery.members!.level as ValueMember;
-    const only = describeWith(["battery"], new Set([level.param!])).find((d) => d.capability === "battery")!;
+    const only = describeAll(new Set([level.param!]), ["battery"]).find((d) => d.capability === "battery")!;
     expect(only.reads.map((r) => r.accessor)).toEqual(["level"]);
-    const all = describeWith(["battery"], allParams()).find((d) => d.capability === "battery")!;
+    const all = describeAll(allParams(), ["battery"]).find((d) => d.capability === "battery")!;
     expect(all.reads.length).toBeGreaterThan(1);
   });
 
   it("publishes what a value means, not just how it is stored", () => {
-    const battery = describeWith(["battery"], allParams()).find((d) => d.capability === "battery")!;
+    const battery = describeAll(allParams(), ["battery"]).find((d) => d.capability === "battery")!;
     expect(battery.reads.find((r) => r.accessor === "level")).toMatchObject({
       property: "battery",
       type: "number",
@@ -178,23 +176,17 @@ describe("describeCapabilities — enumeration of the live bound objects", () =>
     });
   });
 
-  it("gives a lock sole ownership of the `battery` property — the battery capability yields its `level`", () => {
-    // A video smart lock binds both `lock` and (by inference from the shared battery param) `battery`.
-    // Both would publish the flat property `battery`, and a consumer that keys reads by flat name drops
-    // an ambiguous one — so the battery cell reads as unknown even though the lock decodes it. The lock
-    // owns `battery` (its own param + surface), so this capability's `level` yields when a lock is present.
+  it("gives a lock sole ownership of the `battery` property, the battery capability yielding its `level`", () => {
     const paramIds = allParams();
-    const lockAndBattery = describeWith(["lock", "battery"], paramIds);
+    const lockAndBattery = describeAll(paramIds, ["lock", "battery"]);
     const owners = lockAndBattery.flatMap((cap) =>
       cap.reads.filter((r) => r.property === "battery").map((r) => `${cap.accessor}.${r.accessor}`),
     );
     expect(owners).toEqual(["lock.battery"]);
-    // The rest of the battery capability still binds on the lock (e.g. temperature), only `level` yields.
     const battery = lockAndBattery.find((d) => d.capability === "battery")!;
     expect(battery.reads.some((r) => r.accessor === "level")).toBe(false);
     expect(battery.reads.some((r) => r.accessor === "temperature")).toBe(true);
-    // A plain battery device (no lock) still publishes `battery` from its own `level`.
-    const batteryOnly = describeWith(["battery"], paramIds).find((d) => d.capability === "battery")!;
+    const batteryOnly = describeAll(paramIds, ["battery"]).find((d) => d.capability === "battery")!;
     expect(batteryOnly.reads.some((r) => r.accessor === "level" && r.property === "battery")).toBe(true);
   });
 
@@ -269,7 +261,7 @@ describe("describeCapabilities — enumeration of the live bound objects", () =>
 
   it("describes a provider-gated method only on a device bound to that provider", () => {
     const withoutMedia = describeAll(allParams()).find((d) => d.capability === "camera")!;
-    const withMedia = describeAll(allParams(), {
+    const withMedia = describeAll(allParams(), ALL_CAPS, {
       snapshotStored: async () => Buffer.alloc(0),
     } as MediaProvider).find((d) => d.capability === "camera")!;
     const named = (d: typeof withMedia): string[] => [...d.actions.map((a) => a.name), ...d.undescribedActions];
@@ -285,9 +277,6 @@ describe("Device.describe — the manifest a caller renders from", () => {
   const record = { deviceType: 30, model: "T8114", category: "eufy_security", params: { 1101: "88", 1102: "1" } };
   const bound = (): Device => {
     const dev = Device.fromRecord("T8000P0000000000", record);
-    // Bind with the device's OWN capabilities (a battery camera — no lock), not the all-capability
-    // fiction, so availability gates that key off the capability set (e.g. a lock owning `battery`)
-    // resolve as they would on the real device.
     dev.bindActions({ ...ctxWith(new Set([1101, 1102]), record.model), capabilities: new Set(dev.capabilities) }, sink);
     return dev;
   };

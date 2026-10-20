@@ -251,6 +251,9 @@ export const BATTERY_MEMBERS = cellGated({
    * The headline percentage, and this capability's detection evidence: reporting 1101 is what proves a
    * device is battery-powered, which is also the fact `MediaProvider` reads to decide a stream needs a
    * power budget. Published flat as `battery` — `level` alone is claimed by `suction` too.
+   *
+   * Withheld on a device that resolved `lock`, whose own `battery` member reads the same param 1101 and
+   * owns the `battery` property there, so the two do not both claim it.
    */
   level: {
     param: BATTERY_PARAM.BATTERY,
@@ -259,10 +262,6 @@ export const BATTERY_MEMBERS = cellGated({
     unit: "%",
     kind: "percent",
     provenance: "verified",
-    // A lock owns the `battery` property itself (`dev.lock().battery`, same param 1101) and decodes it
-    // into its own surface. Suppressing this read there leaves `battery` with a single owner, so a
-    // consumer that keys reads by flat property name does not drop an ambiguous one. The rest of this
-    // capability (temperature, charging, working mode) still binds on a lock that reports them.
     available: (ctx: AvailabilityContext) => !hasCapability(ctx, "lock"),
     description: "Battery level 0-100 (verified: param 1101).",
   },
