@@ -173,9 +173,9 @@ describe("RtcCommandRouter", () => {
         return "ie-pr";
       },
     });
-    await router.dispatchCommand(ST, arming(1)); // create — shard resolved once
+    await router.dispatchCommand(ST, arming(1));
     expect(shardCalls).toBe(1);
-    await router.dispatchCommand(ST, arming(2)); // reuse — the shard must not be asked again
+    await router.dispatchCommand(ST, arming(2));
     expect(shardCalls).toBe(1);
   });
 

@@ -302,6 +302,15 @@ function tokenRejected(code: number | undefined, msg: string | undefined): boole
 }
 
 /**
+ * The shard a mega domain names: its regional prefix (`…-ie-…` / `…-ie.` → `ie-pr`), or `undefined` when it
+ * names none.
+ */
+function shardOfDomain(domain: string): string | undefined {
+  const m = /-([a-z]{2})(?:[.-]|$)/i.exec(domain);
+  return m ? `${m[1].toLowerCase()}-pr` : undefined;
+}
+
+/**
  * {@link MegaHttpClient.postSigned}'s bookkeeping for the two recoveries it performs on itself, so each is
  * attempted once per call rather than once per rejection.
  * @internal
@@ -456,13 +465,11 @@ export class MegaHttpClient {
   }
 
   /**
-   * The shard the RTC signalling signs on: the regional prefix of the estimated domain
-   * (`…-ie-…`/`…-ie.` → `ie-pr`), else {@link regionShard}. The eu/us classification cannot name shards
-   * like `ie-pr`, whose accounts need the IE sign host and cluster.
+   * The shard the estimated domain names (`…-ie-…`/`…-ie.` → `ie-pr`), else {@link regionShard}. The
+   * eu/us classification cannot name shards like `ie-pr`.
    */
   get rtcShard(): string {
-    const m = /-([a-z]{2})(?:[.-]|$)/i.exec(this.estimatedDomain);
-    return m ? `${m[1].toLowerCase()}-pr` : this.region;
+    return shardOfDomain(this.estimatedDomain) ?? this.region;
   }
 
   /**
@@ -481,16 +488,16 @@ export class MegaHttpClient {
     try {
       const res = await this.estimateDomainRequest({ "Model-Type": "WEB", "App-Name": "eufy_mega" });
       const domain = (res.data as ApiEnvelope<Record<string, unknown>>)?.data?.domain;
-      const m = typeof domain === "string" ? /-([a-z]{2})(?:[.-]|$)/i.exec(domain) : null;
-      if (m) {
-        this.portalShardCache = `${m[1].toLowerCase()}-pr`;
-        this.logger.debug("[mega] portal shard:", this.portalShardCache);
-        return this.portalShardCache;
+      const shard = typeof domain === "string" ? shardOfDomain(domain) : undefined;
+      if (shard) {
+        this.portalShardCache = shard;
+        this.logger.debug("[mega] portal shard:", shard);
+        return shard;
       }
     } catch (e) {
       this.logger.debug("[mega] portal estimate_domain failed:", e instanceof Error ? e.message : String(e));
     }
-    this.portalShardInFlight = undefined; // not resolved to a shard → ask again next time
+    this.portalShardInFlight = undefined;
     return this.rtcShard;
   }
 

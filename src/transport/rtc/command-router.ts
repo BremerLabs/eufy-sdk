@@ -154,6 +154,8 @@ export class RtcCommandRouter {
   private readonly lives = new Map<string, StationLive>();
   private readonly warm = new Map<string, WarmHold>();
   private readonly callSources = new Map<string, SharedLiveSource>();
+  /** The latest shard each `call` source resolved, read by its `makeStream` (see {@link trackMediaProviderFor}). */
+  private readonly callShards = new Map<string, string>();
 
   constructor(private readonly deps: RtcCommandRouterDeps) {}
 
@@ -209,18 +211,24 @@ export class RtcCommandRouter {
    * Live view of a station on a {@link RtcRoute.mediaTrack} route: a live feed, a readable feed and a live
    * still, from one shared source per station whose every warm-up places a fresh `call` on its own
    * session. Recording has no wire here and is refused.
+   *
+   * `SharedLiveSource` calls `makeStream` synchronously, so the shard cannot be awaited inside it. Each
+   * async entry point resolves the shard and records it in {@link callShards} before touching the source;
+   * `makeStream` reads the latest recorded value. A first attempt made while `estimate_domain` fails
+   * resolves the fallback shard, but a later entry point re-asks and overwrites it, so a warm-up after the
+   * estimate recovers signs on the right shard rather than a stale one baked into the source at creation.
    */
   trackMediaProviderFor(route: RtcRoute): MediaProvider {
     const sn = route.stationSn;
-    const sourceFor = (shard: string, hints: SharedSourceHints = {}): SharedLiveSource => {
+    const sourceFor = (hints: SharedSourceHints = {}): SharedLiveSource => {
       let source = this.callSources.get(sn);
       if (!source) {
         source = new SharedLiveSource({
-          // `SharedLiveSource` calls `makeStream` synchronously, so the shard is resolved by the async
-          // entry points below and captured here rather than awaited in the callback.
           makeStream: () => {
             const identity = this.deps.identity();
             if (!identity) throw new Error(`rtc: not logged in, cannot call ${sn}`);
+            const shard = this.callShards.get(sn);
+            if (shard === undefined) throw new Error(`rtc: no shard resolved for ${sn}`);
             const session = this.newSession(route, route.adminUserId || identity.userId, identity, shard);
             return new RtcCallLiveStream(session, this.deps.logger);
           },
@@ -234,16 +242,26 @@ export class RtcCommandRouter {
       }
       return source;
     };
+    const resolveShard = async (): Promise<void> => {
+      this.callShards.set(sn, await this.deps.shard());
+    };
     return {
-      live: async (opts) => attachUnlessAborted(sourceFor(await this.deps.shard(), opts), opts?.signal),
-      openReadable: async (opts) =>
-        openReadableFromConsumer(attachUnlessAborted(sourceFor(await this.deps.shard(), opts), opts?.signal), opts),
-      snapshotLive: async (opts) =>
-        captureSnapshotFromShared(sourceFor(await this.deps.shard(), opts), {
+      live: async (opts) => {
+        await resolveShard();
+        return attachUnlessAborted(sourceFor(opts), opts?.signal);
+      },
+      openReadable: async (opts) => {
+        await resolveShard();
+        return openReadableFromConsumer(attachUnlessAborted(sourceFor(opts), opts?.signal), opts);
+      },
+      snapshotLive: async (opts) => {
+        await resolveShard();
+        return captureSnapshotFromShared(sourceFor(opts), {
           ...opts,
           logger: this.deps.logger,
           ffmpegPath: this.deps.ffmpegPath,
-        }),
+        });
+      },
       record: async () => {
         throw new Error(`record is not available for ${sn} over a portal call`);
       },
@@ -257,6 +275,7 @@ export class RtcCommandRouter {
   close(): void {
     for (const [sn, src] of this.callSources) {
       this.callSources.delete(sn);
+      this.callShards.delete(sn);
       src.dispose();
     }
     for (const [sn, live] of this.lives) {
@@ -451,14 +470,9 @@ export class RtcCommandRouter {
     const reused = await this.reusable(sn);
     if (reused) return reused;
     const shard = await this.deps.shard();
-    const existing = this.sessions.get(sn);
-    if (existing) {
-      await existing.ready;
-      if (existing.session.isConnected) {
-        this.touch(sn, existing);
-        return existing;
-      }
-      this.drop(sn, existing);
+    if (this.sessions.has(sn)) {
+      const again = await this.reusable(sn);
+      if (again) return again;
     }
     const session = this.newSession(route, adminUserId, identity, shard);
     const ready = this.bringUp(sn, session);
