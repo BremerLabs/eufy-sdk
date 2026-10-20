@@ -1,6 +1,6 @@
 import { CusPushEvent } from "../push-events.js";
 import { asBool } from "../../core/util.js";
-import { setStationScalar, setPayload, setScalar } from "./access.js";
+import { setStationScalar, setPayload, setScalar, hasCapability } from "./access.js";
 import type { AvailabilityContext, CapabilityModule, CommandContext } from "./types.js";
 import { accepts, propertiesOf, type Members, type Surface } from "./members.js";
 import type { Command } from "../../core/contracts.js";
@@ -259,6 +259,11 @@ export const BATTERY_MEMBERS = cellGated({
     unit: "%",
     kind: "percent",
     provenance: "verified",
+    // A lock owns the `battery` property itself (`dev.lock().battery`, same param 1101) and decodes it
+    // into its own surface. Suppressing this read there leaves `battery` with a single owner, so a
+    // consumer that keys reads by flat property name does not drop an ambiguous one. The rest of this
+    // capability (temperature, charging, working mode) still binds on a lock that reports them.
+    available: (ctx: AvailabilityContext) => !hasCapability(ctx, "lock"),
     description: "Battery level 0-100 (verified: param 1101).",
   },
   /**
