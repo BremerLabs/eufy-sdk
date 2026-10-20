@@ -503,9 +503,6 @@ export const PTZ: CapabilityModule = {
       PRESET_EVIDENCE_PARAMS.some((p) => Object.hasOwn(record.params ?? {}, p)),
     deviceTypes: [
       DeviceType.OUTDOOR_PT_CAMERA,
-      // SoloCam E30 (88): a single-lens pan-tilt SoloCam that reports none of the preset evidence
-      // params, so its vendor deviceType is the only honest signal. `device-family.ts` already
-      // classifies it as outdoor pan-tilt (`OUTDOOR_PT_TYPES`); compose that here.
       DeviceType.SOLO_CAMERA_E30,
       DeviceType.INDOOR_PT_CAMERA,
       DeviceType.INDOOR_PT_CAMERA_1080,
