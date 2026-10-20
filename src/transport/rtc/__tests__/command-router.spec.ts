@@ -462,6 +462,26 @@ describe("RtcCommandRouter live view", () => {
     }
   });
 
+  it("a later call warm-up signs on the latest shard, not the one the first resolved", async () => {
+    let n = 0;
+    const { router, sessions } = makeRouter({ shard: async () => (n++ === 0 ? "eu-pr" : "ie-pr") });
+    await onFakeTimers(async () => {
+      try {
+        const media = router.trackMediaProviderFor({ ...CAM, signalingMode: "call" });
+        const first = await media.live();
+        expect(sessions[0]!.opts.shard).toBe("eu-pr");
+        first.stop();
+        await vi.advanceTimersByTimeAsync(8_000); // past the source's linger → the stream tears down
+        const second = await media.live();
+        expect(sessions).toHaveLength(2);
+        expect(sessions[1]!.opts.shard).toBe("ie-pr");
+        second.stop();
+      } finally {
+        router.close();
+      }
+    });
+  });
+
   it("shares one pull between concurrent viewers of the same camera", async () => {
     const { router, sessions } = makeRouter();
     try {

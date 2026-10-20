@@ -214,9 +214,7 @@ export class RtcCommandRouter {
    *
    * `SharedLiveSource` calls `makeStream` synchronously, so the shard cannot be awaited inside it. Each
    * async entry point resolves the shard and records it in {@link callShards} before touching the source;
-   * `makeStream` reads the latest recorded value. A first attempt made while `estimate_domain` fails
-   * resolves the fallback shard, but a later entry point re-asks and overwrites it, so a warm-up after the
-   * estimate recovers signs on the right shard rather than a stale one baked into the source at creation.
+   * `makeStream` reads the latest recorded value.
    */
   trackMediaProviderFor(route: RtcRoute): MediaProvider {
     const sn = route.stationSn;

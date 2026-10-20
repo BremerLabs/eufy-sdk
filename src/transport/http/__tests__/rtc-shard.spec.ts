@@ -79,21 +79,21 @@ describe("portalShard", () => {
     const [a, b] = await Promise.all([mega.portalShard(), mega.portalShard()]);
     expect(a).toBe("ie-pr");
     expect(b).toBe("ie-pr");
-    expect(post).toHaveBeenCalledTimes(1); // one in-flight request shared
+    expect(post).toHaveBeenCalledTimes(1);
 
     expect(await mega.portalShard()).toBe("ie-pr");
-    expect(post).toHaveBeenCalledTimes(1); // and cached thereafter
+    expect(post).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to rtcShard when the estimate names no shard, and asks again next time", async () => {
     const { mega, internals } = client(new MemorySessionStore());
     const post = internals.httpPost as unknown as Mock;
-    post.mockResolvedValueOnce({ data: { code: 0, data: {} } }); // first answer carries no domain
+    post.mockResolvedValueOnce({ data: { code: 0, data: {} } });
 
-    expect(await mega.portalShard()).toBe(mega.rtcShard); // not cached — the fallback
+    expect(await mega.portalShard()).toBe(mega.rtcShard);
     expect(post).toHaveBeenCalledTimes(1);
 
-    expect(await mega.portalShard()).toBe("ie-pr"); // asked again, now resolves
+    expect(await mega.portalShard()).toBe("ie-pr");
     expect(post).toHaveBeenCalledTimes(2);
   });
 });
