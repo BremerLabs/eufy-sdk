@@ -107,18 +107,16 @@ describe("FCM/MCS push primitives", () => {
       const client = new PushClient({ fid: "x", androidId: "1", securityToken: "2", fcmToken: "t" } as never);
       const write = vi.fn();
       const destroy = vi.fn();
-      const internals = client as unknown as { socket: unknown; loggedIn: boolean; startHeartbeat(): void };
+      const internals = client as unknown as { socket: unknown; onMessage(m: unknown): void };
       internals.socket = { write, destroy };
-      internals.loggedIn = true;
-      internals.startHeartbeat();
+      internals.onMessage({ tag: MessageTag.LoginResponse, object: {} }); // logs in → starts the heartbeat
 
       // First tick: the link is fresh, so we ping rather than tear down.
       vi.advanceTimersByTime(5 * 60 * 1000);
       expect(write).toHaveBeenCalledTimes(1);
       expect(destroy).not.toHaveBeenCalled();
 
-      // No inbound frame answers that ping. The next tick sees a full window of silence → close to
-      // reconnect, and does NOT write another ping into the void.
+      // No inbound frame answers that ping; the next tick closes the socket and writes no further ping.
       vi.advanceTimersByTime(5 * 60 * 1000);
       expect(destroy).toHaveBeenCalledTimes(1);
       expect(write).toHaveBeenCalledTimes(1);
@@ -134,15 +132,9 @@ describe("FCM/MCS push primitives", () => {
       const client = new PushClient({ fid: "x", androidId: "1", securityToken: "2", fcmToken: "t" } as never);
       const write = vi.fn();
       const destroy = vi.fn();
-      const internals = client as unknown as {
-        socket: unknown;
-        loggedIn: boolean;
-        startHeartbeat(): void;
-        onMessage(m: unknown): void;
-      };
+      const internals = client as unknown as { socket: unknown; onMessage(m: unknown): void };
       internals.socket = { write, destroy };
-      internals.loggedIn = true;
-      internals.startHeartbeat();
+      internals.onMessage({ tag: MessageTag.LoginResponse, object: {} }); // logs in → starts the heartbeat
 
       for (let i = 0; i < 5; i++) {
         vi.advanceTimersByTime(5 * 60 * 1000);
