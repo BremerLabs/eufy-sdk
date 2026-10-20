@@ -503,6 +503,10 @@ export const PTZ: CapabilityModule = {
       PRESET_EVIDENCE_PARAMS.some((p) => Object.hasOwn(record.params ?? {}, p)),
     deviceTypes: [
       DeviceType.OUTDOOR_PT_CAMERA,
+      // SoloCam E30 (88): a single-lens pan-tilt SoloCam that reports none of the preset evidence
+      // params, so its vendor deviceType is the only honest signal. `device-family.ts` already
+      // classifies it as outdoor pan-tilt (`OUTDOOR_PT_TYPES`); compose that here.
+      DeviceType.SOLO_CAMERA_E30,
       DeviceType.INDOOR_PT_CAMERA,
       DeviceType.INDOOR_PT_CAMERA_1080,
       DeviceType.CAMERA_4G_S330,
@@ -516,9 +520,7 @@ export const PTZ: CapabilityModule = {
       // no PTZ capability without this, on a real owned unit.
       DeviceType.FLOODLIGHT_CAMERA_8425,
     ],
-    // T8171 (SoloCam E30) is a single-lens pan-tilt SoloCam (its rotate/preset wire is live-captured
-    // above), but it reports NONE of the preset evidence params, so only a model match detects it.
-    modelHints: [/pan.?tilt|\bpt\b|S3[45]0|indoor.?pt/i, /\bT8E00\b/i, /\bT8171\b/i],
+    modelHints: [/pan.?tilt|\bpt\b|S3[45]0|indoor.?pt/i, /\bT8E00\b/i],
   },
   emits: ["ptzNotify"],
   /**
