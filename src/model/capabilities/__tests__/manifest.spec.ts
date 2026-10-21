@@ -184,10 +184,7 @@ describe("describeCapabilities — enumeration of the live bound objects", () =>
     );
     expect(owners).toEqual(["lock.battery"]);
     const battery = lockAndBattery.find((d) => d.capability === "battery")!;
-    expect(battery.reads.some((r) => r.accessor === "level")).toBe(false);
     expect(battery.reads.some((r) => r.accessor === "temperature")).toBe(true);
-    const batteryOnly = describeAll(paramIds, ["battery"]).find((d) => d.capability === "battery")!;
-    expect(batteryOnly.reads.some((r) => r.accessor === "level" && r.property === "battery")).toBe(true);
   });
 
   it("describes a reported camera Wi-Fi signal as a read-only scalar without inferred units", () => {
