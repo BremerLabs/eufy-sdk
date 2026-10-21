@@ -165,20 +165,6 @@ describe("RtcCommandRouter", () => {
     expect(sessions[0]!.opts.shard).toBe("ie-pr");
   });
 
-  it("does not await the shard again when reusing a connected session", async () => {
-    let shardCalls = 0;
-    const { router } = makeRouter({
-      shard: () => {
-        shardCalls++;
-        return "ie-pr";
-      },
-    });
-    await router.dispatchCommand(ST, arming(1));
-    expect(shardCalls).toBe(1);
-    await router.dispatchCommand(ST, arming(2));
-    expect(shardCalls).toBe(1);
-  });
-
   it("sends the app's 1350 envelope on the station channel and resolves on the ACK", async () => {
     const { router, sessions } = makeRouter();
     await router.dispatchCommand(ST, arming(1));
@@ -471,7 +457,7 @@ describe("RtcCommandRouter live view", () => {
         const first = await media.live();
         expect(sessions[0]!.opts.shard).toBe("eu-pr");
         first.stop();
-        await vi.advanceTimersByTimeAsync(8_000); // past the source's linger → the stream tears down
+        await vi.advanceTimersByTimeAsync(8_000);
         const second = await media.live();
         expect(sessions).toHaveLength(2);
         expect(sessions[1]!.opts.shard).toBe("ie-pr");

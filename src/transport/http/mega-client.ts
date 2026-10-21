@@ -331,8 +331,7 @@ export class MegaHttpClient {
   private region: RegionShard;
   /** The host `estimate_domain` answered, persisted with the session. */
   private estimatedDomain = "";
-  /** The shard {@link portalShard} resolved for RTC signing, once it has, and its in-flight request. */
-  private portalShardCache?: string;
+  /** The in-flight (then settled, so cached) RTC-sign shard request from {@link portalShard}. */
   private portalShardInFlight?: Promise<string>;
   private bootstrapDomain?: string;
   private sessionKey?: SessionEntry;
@@ -475,12 +474,11 @@ export class MegaHttpClient {
   /**
    * The shard the RTC signalling signs on, from `estimate_domain` asked with the portal's WEB identity
    * (`Model-Type: WEB`, `App-Name: eufy_mega`) — the identity the sign itself is sent with, which can name
-   * a different shard than the PHONE identity does for one account. Cached, with the in-flight request
-   * shared by concurrent first callers; a call that fails or names no shard answers {@link rtcShard} and is
-   * asked again next time.
+   * a different shard than the PHONE identity does for one account. The in-flight request is shared by
+   * concurrent first callers, and once it settles to a shard the resolved promise is the cache; a call
+   * that fails or names no shard answers {@link rtcShard}, clears the field and is asked again next time.
    */
   async portalShard(): Promise<string> {
-    if (this.portalShardCache) return this.portalShardCache;
     return (this.portalShardInFlight ??= this.fetchPortalShard());
   }
 
@@ -490,7 +488,6 @@ export class MegaHttpClient {
       const domain = (res.data as ApiEnvelope<Record<string, unknown>>)?.data?.domain;
       const shard = typeof domain === "string" ? shardOfDomain(domain) : undefined;
       if (shard) {
-        this.portalShardCache = shard;
         this.logger.debug("[mega] portal shard:", shard);
         return shard;
       }

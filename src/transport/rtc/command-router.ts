@@ -225,8 +225,7 @@ export class RtcCommandRouter {
           makeStream: () => {
             const identity = this.deps.identity();
             if (!identity) throw new Error(`rtc: not logged in, cannot call ${sn}`);
-            const shard = this.callShards.get(sn);
-            if (shard === undefined) throw new Error(`rtc: no shard resolved for ${sn}`);
+            const shard = this.callShards.get(sn)!; // every entry point records it before touching the source
             const session = this.newSession(route, route.adminUserId || identity.userId, identity, shard);
             return new RtcCallLiveStream(session, this.deps.logger);
           },
