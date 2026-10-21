@@ -24,12 +24,7 @@ const HOST = "mtalk.google.com";
 const PORT = 5228;
 const MCS_VERSION = 41;
 const HEARTBEAT_MS = 5 * 60 * 1000;
-/**
- * Slack beyond one heartbeat interval before a silent socket is declared dead. The server acks every
- * ping we send (and pings us on its own cadence), so a full interval plus this grace with zero inbound
- * bytes means the link is half-open — dropped somewhere downstream while it still looks connected here.
- */
-const HEARTBEAT_GRACE_MS = 60 * 1000;
+const SILENCE_MS = HEARTBEAT_MS + 60 * 1000;
 
 function readNullTerminated(buf: Buffer): string {
   const i = buf.indexOf(0);
@@ -294,15 +289,15 @@ export class PushClient extends EventEmitter {
 
   /**
    * Ping on an interval, and detect a half-open socket. MCS answers every `HeartbeatPing` with a
-   * `HeartbeatAck`, so a full interval plus {@link HEARTBEAT_GRACE_MS} with no inbound frame means the
-   * link is dead (a write to a half-open socket does not error for a long time, often never). We close
-   * it so {@link onClose} reconnects, rather than keep writing pings into the void.
+   * `HeartbeatAck`, so {@link SILENCE_MS} with no inbound frame means the link is dead (a write to a
+   * half-open socket does not error for a long time, often never). We close it so {@link onClose}
+   * reconnects, rather than keep writing pings into the void.
    */
   private startHeartbeat(): void {
     this.stopHeartbeat();
     this.heartbeatTimer = setInterval(() => {
       if (!this.socket || !this.loggedIn) return;
-      if (Date.now() - this.lastRxMs >= HEARTBEAT_MS + HEARTBEAT_GRACE_MS) {
+      if (Date.now() - this.lastRxMs >= SILENCE_MS) {
         this.logger.debug("[push] no inbound within a heartbeat window — reconnecting");
         this.socket.destroy();
         return;

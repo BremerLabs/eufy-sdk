@@ -116,32 +116,16 @@ describe("FCM/MCS push primitives", () => {
       expect(write).toHaveBeenCalledTimes(1);
       expect(destroy).not.toHaveBeenCalled();
 
-      // No inbound frame answers that ping; the next tick closes the socket and writes no further ping.
+      // An ack answers that ping: the next tick keeps the socket and pings again, never tearing down.
+      internals.onMessage({ tag: MessageTag.HeartbeatAck, object: {} });
+      vi.advanceTimersByTime(5 * 60 * 1000);
+      expect(destroy).not.toHaveBeenCalled();
+      expect(write).toHaveBeenCalledTimes(2);
+
+      // Now no ack answers: the following tick sees a full silence window → close, and write no ping.
       vi.advanceTimersByTime(5 * 60 * 1000);
       expect(destroy).toHaveBeenCalledTimes(1);
-      expect(write).toHaveBeenCalledTimes(1);
-      client.close();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("keeps the socket alive while inbound frames keep arriving", () => {
-    vi.useFakeTimers();
-    try {
-      const client = new PushClient({ fid: "x", androidId: "1", securityToken: "2", fcmToken: "t" } as never);
-      const write = vi.fn();
-      const destroy = vi.fn();
-      const internals = client as unknown as { socket: unknown; onMessage(m: unknown): void };
-      internals.socket = { write, destroy };
-      internals.onMessage({ tag: MessageTag.LoginResponse, object: {} }); // logs in → starts the heartbeat
-
-      for (let i = 0; i < 5; i++) {
-        vi.advanceTimersByTime(5 * 60 * 1000);
-        internals.onMessage({ tag: MessageTag.HeartbeatAck, object: {} }); // the server answers each ping
-      }
-      expect(destroy).not.toHaveBeenCalled();
-      expect(write).toHaveBeenCalledTimes(5);
+      expect(write).toHaveBeenCalledTimes(2);
       client.close();
     } finally {
       vi.useRealTimers();
