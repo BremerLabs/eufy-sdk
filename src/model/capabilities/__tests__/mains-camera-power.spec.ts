@@ -63,6 +63,25 @@ describe("PoE camera power tier behind T8N00 (#437)", () => {
 });
 
 describe("mains-only camera power tier (T84A1 Wall Light Cam S100)", () => {
+  it("treats the powered T8417 as wired despite battery params", () => {
+    const model = "T8417";
+    expect(cameraPowerTier(model, BATTERY_CAPS)).toBe("wired");
+    const dev = Device.fromRecord(`${model}P0000000001`, { deviceType: 30, model, params: { 1101: "100", 1293: "0" } });
+    expect(dev.getProperty("battery")).toBeUndefined();
+    for (const property of [
+      "battery",
+      "charging",
+      "batteryHealth",
+      "batteryPowerStats",
+      "batteryTemperature",
+      "solarIntensity",
+      "solarConnected24h",
+      "powerSource",
+    ]) {
+      expect(dev.properties.map((spec) => spec.name)).not.toContain(property);
+    }
+  });
+
   it("classifies T84A1 as wired even with the battery capability resolved", () => {
     expect(cameraPowerTier("T84A1", BATTERY_CAPS)).toBe("wired");
     expect(cameraPowerTier(SN, BATTERY_CAPS)).toBe("wired");

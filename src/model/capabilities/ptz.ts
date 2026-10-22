@@ -186,6 +186,9 @@ const PRESET_EVIDENCE_PARAMS = [1029, 6090, 6091, 6092, 6210];
  */
 const FIXED_LENS_MODELS: ReadonlySet<string> = new Set(["T8134"]);
 
+/** Vendor-identified pan/tilt models that attached records may report without preset parameters. */
+const PTZ_MODEL_CODES: ReadonlySet<string> = new Set(["T8171", "T8417"]);
+
 /**
  * Pan-tilt rotate as a transport-neutral {@link Command}. CONFIRMED wire command (captured on
  * T8425 ch3 during live-view): `{"commandType":6030,"data":{"cmd_type":1,"rotate_type":1..4,
@@ -499,8 +502,9 @@ export const PTZ: CapabilityModule = {
   // over-broad hint would false-positive a future non-PT model, the same class of bug as a mislabel.
   detection: {
     detect: (record) =>
-      !FIXED_LENS_MODELS.has(record.model ?? "") &&
-      PRESET_EVIDENCE_PARAMS.some((p) => Object.hasOwn(record.params ?? {}, p)),
+      PTZ_MODEL_CODES.has(record.model?.trim().toUpperCase() ?? "") ||
+      (!FIXED_LENS_MODELS.has(record.model ?? "") &&
+        PRESET_EVIDENCE_PARAMS.some((p) => Object.hasOwn(record.params ?? {}, p))),
     deviceTypes: [
       DeviceType.OUTDOOR_PT_CAMERA,
       DeviceType.INDOOR_PT_CAMERA,

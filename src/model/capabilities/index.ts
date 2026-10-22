@@ -307,6 +307,7 @@ export function detectCapabilities(rec: CloudRecord, codec?: Codec): Capability[
     const d = m.detection;
     if (!d) continue;
     if (!lineAllows(m, codec)) continue;
+    if (d.excludedModels?.some((re) => re.test(rec.model?.trim() ?? ""))) continue;
     let matched = false;
 
     if (d.evidenceParams) {

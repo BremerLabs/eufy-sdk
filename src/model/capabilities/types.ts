@@ -40,6 +40,8 @@ export interface DetectionSpec {
   deviceTypes?: number[];
   modelHints?: RegExp[];
   codecs?: Codec[];
+  /** Known hardware without this capability, even when generic params overlap. */
+  excludedModels?: RegExp[];
   detect?(rec: CloudRecord, codec: Codec): boolean;
 }
 

@@ -147,6 +147,45 @@ describe("resolveDevice — 3-tier composition", () => {
     expect(resolveDevice({ deviceType: 46 }).capabilities).not.toContain("ptz");
   });
 
+  it.each(["T8171", "T8417"])("keeps PTZ on attached %s without preset params", (model) => {
+    expect(resolveDevice({ model, deviceType: 30, parentSn: "T9000P0000000001", params: {} }).capabilities).toContain(
+      "ptz",
+    );
+    expect(
+      resolveDevice({
+        model,
+        category: "security_camera",
+        name: "Synthetic camera",
+        deviceType: 30,
+        parentSn: "T9000P0000000001",
+        params: {},
+      }).capabilities,
+    ).toContain("ptz");
+  });
+
+  it("does not infer PTZ from an unrelated device name containing a PTZ model code", () => {
+    expect(
+      resolveDevice({
+        model: "T9999",
+        category: "security_camera",
+        name: "T8171 test name",
+        deviceType: 30,
+        params: {},
+      }).capabilities,
+    ).not.toContain("ptz");
+  });
+
+  it("does not advertise a spotlight on SoloCam E30 despite overlapping light params", () => {
+    const params = { 1400: "0", 1401: "80", 1403: "1" };
+    const e30 = resolveDevice({ model: "T8171", deviceType: 48, params });
+    expect(e30.capabilities).not.toContain("light");
+    const properties = e30.properties.map((p) => p.name);
+    for (const name of ["light", "brightness", "spotlightEnabled", "colorTemp"]) {
+      expect(properties).not.toContain(name);
+    }
+    expect(resolveDevice({ model: "T8170", deviceType: 48, params }).capabilities).toContain("light");
+  });
+
   it.each([undefined, DeviceType.CAMERA_POE_S4])(
     "recognizes PoE S4 pan-tilt without reported preset parameters (device type %s)",
     (deviceType) => {

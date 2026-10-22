@@ -66,13 +66,13 @@ describe("battery capability module", () => {
     expect(BATTERY.detection?.evidenceParams).toContain(1101);
   });
 
-  it("names exactly seven cell params, pinned independently of the list itself", () => {
+  it("names exactly eight cell-dependent params, pinned independently of the list itself", () => {
     // The one place duplication is right. Every other assertion here iterates CELL_PARAMS, so dropping
     // an entry drops its own check with it — and since `cellGated` applies the gate FROM that list, a
     // deletion would silently un-gate a read and stay green. A test that takes its expectation from the
     // thing under test proves nothing about it, so the expected set is written out.
     expect([...CELL_PARAMS].sort((a, b) => a - b)).toEqual(
-      [1101, 1138, 1198, 2111, 3100, 6482, 1309].sort((a, b) => a - b),
+      [1101, 1138, 1198, 1293, 2111, 3100, 6482, 1309].sort((a, b) => a - b),
     );
   });
 
@@ -128,7 +128,7 @@ describe("battery capability module", () => {
 
     // Everything a mains camera binds, pinned whole rather than as absences — so a cell getter that
     // starts installing shows up here even if nobody thought to name it.
-    expect(bound("T8410P00")).toEqual(["powerSource", "setPowerSource", "setWorkingMode", "workingMode"]);
+    expect(bound("T8410P00")).toEqual(["setWorkingMode", "workingMode"]);
     // And the same context on a real battery cam binds the cell reads beside them.
     for (const name of ["level", "charging", "temperature", "health", "solarIntensity", "solarConnected24h"]) {
       expect(bound("T8114P00"), `a battery camera lost ${name}`).toContain(name);
@@ -163,8 +163,8 @@ describe("battery capability module", () => {
     // Kept, not dropped: the graceful-unknown rule says the data survives, under a name claiming nothing.
     const keys = Object.keys(mains.getProperties()).sort();
     for (const param of CELL_PARAMS) expect(keys).toContain(`unknown_${param}`);
-    // And the supply it genuinely reports is still named.
-    expect(mains.getProperty("powerSource")).toBeDefined();
+    // A battery/solar selector on a mains-only camera is a sentinel, not a usable control.
+    expect(mains.getProperty("powerSource")).toBeUndefined();
 
     // A real battery camera is untouched, under the member's name.
     const cell = of("T8114");

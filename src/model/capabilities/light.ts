@@ -343,6 +343,8 @@ export const LIGHT: CapabilityModule = {
   detection: {
     evidenceParams: [1400, 1401, 1403, 6080, 6082, 1413],
     modelHints: [/floodlight|wall.?light|spot.?light|search.?light/i],
+    // SoloCam E30 reports overlapping light params but has infrared vision and no spotlight.
+    excludedModels: [/^T8171$/i],
   },
   /**
    * Only what the member table cannot express: `on`/`off` as no-argument verbs over the same wire as the

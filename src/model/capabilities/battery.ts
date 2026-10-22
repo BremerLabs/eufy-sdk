@@ -159,7 +159,7 @@ function recordSetting(param: number, value: number, ctx: CommandContext): Comma
  * The same list decides the live-media and P2P-session power tier through {@link cameraPowerTier}: a
  * budget on a mains camera is not cheap once it kills a continuous stream every minute.
  */
-const MAINS_CAMERA_MODELS = ["T8425", "T8419", "T8410", "T84A1", "T8423", "T8E00", "T8P00"] as const;
+const MAINS_CAMERA_MODELS = ["T8425", "T8419", "T8410", "T8417", "T84A1", "T8423", "T8E00", "T8P00"] as const;
 
 /**
  * Power tier of a camera for its live-media budget and standalone P2P session: `"battery"` only when it
@@ -191,12 +191,9 @@ const notMainsCamera = (ctx: AvailabilityContext): boolean => {
  *    it, and a mains camera genuinely has them. They are the reason the capability stays attached.
  *  - `cameraInfo` (1103) is a number whose meaning is unevidenced. Gating it would assert it is a
  *    battery fact, which is the kind of claim this guard exists to stop making.
- *  - `powerSource` (1293) is the open one. Both values it names — `Battery` and `External Solar Panel` —
- *    describe how a CELL is fed, so by this list's own rule it arguably belongs here. It is out because
- *    every param above is one a live mains camera was observed to publish and 1293 was not among them,
- *    and because it is `requires`-gated on its own param, so it appears only where the device reports
- *    it. Gating it would also withhold a described WRITE rather than a read, which is a different class
- *    of change. Unresolved rather than decided: see the note in the pull request.
+ *  - `powerSource` (1293) offers only `Battery` and `External Solar Panel`, neither of which a
+ *    mains-only camera can use. A powered T8417 did report the `Battery` value despite having no cell;
+ *    `requires` alone therefore does not prevent a false select. Gate its read and write together.
  *
  * The two solar params ARE here: a panel exists to charge a cell, so a device without one has no solar
  * harvest to report either.
@@ -204,6 +201,7 @@ const notMainsCamera = (ctx: AvailabilityContext): boolean => {
 export const CELL_PARAMS: readonly number[] = [
   BATTERY_PARAM.BATTERY,
   BATTERY_PARAM.BATTERY_STATUS,
+  BATTERY_PARAM.POWER_CHARGE,
   BATTERY_PARAM.BATTERY_TEMP,
   BATTERY_PARAM.BATTERY_HEALTH,
   BATTERY_PARAM.SOLAR_INTENSITY,
